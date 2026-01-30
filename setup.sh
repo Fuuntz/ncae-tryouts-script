@@ -166,12 +166,21 @@ fi
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming
 ufw default allow outgoing
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 21/tcp
-ufw allow 53
-ufw allow 3306/tcp
+
+# Allow Critical Services
+ufw allow 22/tcp comment 'SSH'
+ufw allow 80/tcp comment 'HTTP'
+ufw allow 21/tcp comment 'FTP'
+ufw allow 53/tcp comment 'DNS TCP'
+ufw allow 53/udp comment 'DNS UDP'
+ufw allow 3306/tcp comment 'SQL'
+
+# Required for FTP Passive Mode (if client requests it) - High ports
+ufw allow 40000:50000/tcp comment 'FTP Passive'
+
 ufw --force enable >/dev/null 2>&1
+log "Firewall Rules Applied:"
+ufw status verbose | grep "21" || warn "FTP Port 21 might not be allowed!"
 
 # 3.2 Anti-Persistence
 log "  - Clearing Crontabs..."
