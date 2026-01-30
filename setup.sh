@@ -29,6 +29,9 @@ fi
 log "Starting setup... Detailed logs at $LOG_FILE"
 echo "$(date): Starting Setup" > "$LOG_FILE"
 
+# FIX: Ensure system binaries (iptables, ufw, useradd) are in PATH
+export PATH=$PATH:/usr/sbin:/sbin
+
 # --- 1. System Update ---
 log "Updating package lists..."
 apt update -y >/dev/null 2>&1
