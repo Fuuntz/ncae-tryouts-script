@@ -31,21 +31,24 @@ echo "$(date): Starting Setup" > "$LOG_FILE"
 
 # --- 1. System Update ---
 log "Updating package lists..."
-apt-get update -y >/dev/null 2>&1
+apt update -y >/dev/null 2>&1
 
 # --- 2. Services ---
 
 # 2.1 HTTP (Nginx)
 log "Setting up HTTP (Nginx)..."
-apt-get install -y nginx >/dev/null 2>&1
+apt install -y nginx >/dev/null 2>&1
 echo "Hello World!" > /var/www/html/index.html
+# Nginx permissions: defaults usually work, but this ensures www-data can read it.
+chown www-data:www-data /var/www/html/index.html
 systemctl restart nginx
 
 # 2.2 FTP (vsftpd)
 log "Setting up FTP (vsftpd)..."
-apt-get install -y vsftpd >/dev/null 2>&1
+apt install -y vsftpd >/dev/null 2>&1
 # Backup default
 cp /etc/vsftpd.conf /etc/vsftpd.conf.bak 2>/dev/null || true
+# Inline Config Modification (Safer than replacing)
 sed -i 's/anonymous_enable=NO/anonymous_enable=YES/' /etc/vsftpd.conf
 sed -i 's/#write_enable=YES/write_enable=YES/' /etc/vsftpd.conf 2>/dev/null || true
 # Ensure anon_root is set (append if missing)
@@ -55,12 +58,16 @@ fi
 # Setup content
 mkdir -p /srv/ftp
 echo "iloveftp" > /srv/ftp/iloveftp.txt
-chown -R ftp:ftp /srv/ftp
+# CRITICAL: vsftpd SECURITY CHECK requires root ownership of the chroot root.
+# If this is owned by ftp/user, vsftpd will REFUSE to start.
+chown root:root /srv/ftp
+chmod 755 /srv/ftp
+chown ftp:ftp /srv/ftp/iloveftp.txt
 systemctl restart vsftpd
 
 # 2.3 DNS (Bind9)
 log "Setting up DNS (Bind9)..."
-apt-get install -y bind9 bind9utils bind9-doc >/dev/null 2>&1
+apt install -y bind9 bind9utils bind9-doc >/dev/null 2>&1
 # Define Zone
 if ! grep -q "test.local" /etc/bind/named.conf.local; then
     cat <<EOF >> /etc/bind/named.conf.local
@@ -89,7 +96,7 @@ systemctl restart bind9
 
 # 2.4 SQL (MariaDB)
 log "Setting up SQL (MariaDB)..."
-apt-get install -y mariadb-server >/dev/null 2>&1
+apt install -y mariadb-server >/dev/null 2>&1
 systemctl start mariadb
 # Init Database, Table, and User
 mysql -e "CREATE DATABASE IF NOT EXISTS cyberforce;"
@@ -105,7 +112,7 @@ systemctl restart mariadb
 
 # 2.5 SSH
 log "Setting up SSH..."
-apt-get install -y openssh-server >/dev/null 2>&1
+apt install -y openssh-server >/dev/null 2>&1
 if ! id "ssh-user" &>/dev/null; then
     /usr/sbin/useradd -m -s /bin/bash ssh-user
 fi
@@ -131,7 +138,7 @@ iptables -X >/dev/null 2>&1 || true
 systemctl stop firewalld 2>/dev/null || true
 systemctl disable firewalld 2>/dev/null || true
 
-apt-get install -y ufw >/dev/null 2>&1
+apt install -y ufw >/dev/null 2>&1
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming
 ufw default allow outgoing
@@ -166,7 +173,7 @@ done
 
 # 3.5 PAM Reset
 log "  - Resetting PAM..."
-apt-get install --reinstall -y libpam-runtime libpam-modules >/dev/null 2>&1
+apt install --reinstall -y libpam-runtime libpam-modules >/dev/null 2>&1
 if grep -q "pam_permit.so" /etc/pam.d/common-auth; then
     warn "Found 'pam_permit.so' in common-auth! Check manually."
 fi
