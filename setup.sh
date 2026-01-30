@@ -132,13 +132,32 @@ systemctl restart ssh
 log "Applying Security Hardening..."
 
 # 3.1 Firewall
+# 3.1 Firewall
 log "  - Resetting Firewall..."
+# Preventive: Set default policies to ACCEPT before flushing to avoid locking out SSH
+iptables -P INPUT ACCEPT
+iptables -P OUTPUT ACCEPT
+iptables -P FORWARD ACCEPT
 iptables -F >/dev/null 2>&1 || true
 iptables -X >/dev/null 2>&1 || true
 systemctl stop firewalld 2>/dev/null || true
 systemctl disable firewalld 2>/dev/null || true
 
-apt install -y ufw >/dev/null 2>&1
+log "  - Installing UFW..."
+# Un-silenced to debug installation issues
+apt install -y ufw
+
+if ! command -v ufw &> /dev/null; then
+    warn "UFW failed to install! Checking path or package manager..."
+    # Try to find it in common locations
+    if [ -f /usr/sbin/ufw ]; then
+        log "Found UFW at /usr/sbin/ufw. Fixing PATH or using absolute path."
+        alias ufw='/usr/sbin/ufw'
+    else
+        warn "UFW binary not found. Firewall setup might fail."
+    fi
+fi
+
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming
 ufw default allow outgoing
