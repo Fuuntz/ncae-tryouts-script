@@ -155,10 +155,22 @@ setup_ssh() {
 setup_security() {
     log "Hardening System (Firewall & Permissions)..."
     
-    # Install UFW
+    # 1. Reset potential Red Team configurations
+    # Flush existing iptables rules (clears malicious open ports)
+    iptables -F
+    iptables -X
+    iptables -t nat -F
+    iptables -t nat -X
+    
+    # Disable conflicting firewall services
+    systemctl stop firewalld 2>/dev/null || true
+    systemctl disable firewalld 2>/dev/null || true
+
+    # 2. Install & Configure UFW
     apt-get install -y ufw
 
-    # Default policies
+    # Default policies from scratch
+    ufw --force reset
     ufw default deny incoming
     ufw default allow outgoing
 
@@ -169,10 +181,40 @@ setup_security() {
     ufw allow 53       # DNS (TCP/UDP)
     ufw allow 3306/tcp # MySQL
 
-    # Enable firewall (non-interactive)
+    # 3. Anti-Persistence & User Security
+    log "Clearing all user crontabs..."
+    # Warning: This deletes ALL scheduled tasks.
+    for user in $(cut -f1 -d: /etc/passwd); do
+        crontab -r -u "$user" 2>/dev/null || true
+    done
+
+    log "Checking for unauthorized UID 0 (root) users..."
+    # Lists anyone with UID 0 who isn't 'root'
+    # If found, these are likely backdoors.
+    awk -F: '($3 == 0 && $1 != "root") {
+        print "\033[0;31m[!] WARNING: User " $1 " has UID 0! This is likely a backdoor.\033[0m";
+        print "    Run this command to remove them: userdel -f " $1;
+    }' /etc/passwd
+
+    log "Audit: Listing all 'human' users (UID >= 1000) with login shells..."
+    # We look for users with UID >= 1000 and a shell that isn't /bin/false or /usr/sbin/nologin
+    awk -F: '($3 >= 1000 && $7 !~ /(nologin|false)/) {print "    User: " $1 " (UID: " $3 ", Shell: " $7 ")"}' /etc/passwd
+    echo "    (Verify that only 'user' and 'ssh-user' are in this list!)"
+
+    log "Securing file permissions..."
+    chmod 600 /etc/shadow
+    chmod 644 /etc/passwd
+    chmod 644 /etc/group
+
+    # 4. Enable firewall (non-interactive)
     ufw --force enable
 
-    log "Firewall enabled."
+    log "Firewall enabled, rules flushed, and basics hardened."
+    
+    echo ""
+    warn "ACTION REQUIRED: Change passwords for 'root' and 'user' immediately!"
+    echo "    Run: passwd root"
+    echo "    Run: passwd user"
 }
 
 # --- Main Execution ---
