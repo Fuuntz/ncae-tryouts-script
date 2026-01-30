@@ -1,0 +1,14 @@
+;
+; BIND data file for test.local
+;
+$TTL    604800
+@       IN      SOA     test.local. root.test.local. (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns.test.local.
+@       IN      A       10.10.10.10
+ns      IN      A       10.10.10.10
