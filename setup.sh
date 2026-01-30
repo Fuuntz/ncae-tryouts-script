@@ -205,6 +205,41 @@ setup_security() {
     chmod 600 /etc/shadow
     chmod 644 /etc/passwd
     chmod 644 /etc/group
+    
+    log "Hardening PAM (Pluggable Authentication Modules)..."
+    # Reinstall PAM to try and reset modified config files
+    apt-get install --reinstall -y libpam-runtime libpam-modules
+    
+    # Check for "permit" backdoor (allowing anyone in)
+    if grep -q "pam_permit.so" /etc/pam.d/common-auth; then
+         echo -e "${RED}[!] WARNING: Found 'pam_permit.so' in /etc/pam.d/common-auth!${NC}"
+         echo -e "    This might be a backdoor. Check the file manually."
+    else
+         log "PAM common-auth looks sane (no obvious permit-all)."
+    fi
+
+    else
+         log "PAM common-auth looks sane (no obvious permit-all)."
+    fi
+
+    log "Auditing SUID/SGID binaries..."
+    # 1. List them for review
+    echo "    Listing all SUID binaries (Save this list!):"
+    find / -type f -perm -4000 2>/dev/null | xargs ls -l
+
+    # 2. Defang known dangerous SUID binaries (common GTFOBins)
+    # If these have SUID, it's almost certainly a backdoor.
+    DANGEROUS_BINS=("vim" "nano" "vi" "cp" "mv" "find" "env" "python3" "python2" "perl" "ruby" "lua" "bash" "sh" "dash" "cat" "more" "less" "awk" "sed")
+    
+    for bin in "${DANGEROUS_BINS[@]}"; do
+        # Find paths to these binaries
+        found_paths=$(find /bin /usr/bin /usr/local/bin /sbin /usr/sbin -name "$bin" -perm -4000 2>/dev/null)
+        for path in $found_paths; do
+            echo -e "${RED}[!] WARNING: Found SUID on dangerous binary: $path${NC}"
+            echo "    Removing SUID bit..."
+            chmod u-s "$path"
+        done
+    done
 
     # 4. Enable firewall (non-interactive)
     ufw --force enable
