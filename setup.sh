@@ -58,6 +58,12 @@ sed -i 's/#write_enable=YES/write_enable=YES/' /etc/vsftpd.conf 2>/dev/null || t
 if ! grep -q "anon_root" /etc/vsftpd.conf; then
     echo "anon_root=/srv/ftp" >> /etc/vsftpd.conf
 fi
+# Configure Passive Mode Ports (Must match Firewall!)
+if ! grep -q "pasv_min_port" /etc/vsftpd.conf; then
+    echo "pasv_min_port=40000" >> /etc/vsftpd.conf
+    echo "pasv_max_port=50000" >> /etc/vsftpd.conf
+fi
+
 # Setup content
 mkdir -p /srv/ftp
 echo "iloveftp" > /srv/ftp/iloveftp.txt
