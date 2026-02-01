@@ -1,6 +1,7 @@
 #!/bin/bash
-# NCAE Threat Hunting Checklist
+# NCAE Passive Threat Scanner
 # Usage: sudo ./hunt.sh
+# "Report, Don't Pause"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -13,64 +14,121 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-header() {
-    echo -e "\n${BLUE}=== $1 ===${NC}"
-    echo "STEP: $2"
+echo -e "${BLUE}=== NCAE Security Report ===${NC}"
+
+# --- Helper Functions ---
+pass() {
+    echo -e "${GREEN}[ OK ]${NC} $1"
 }
 
-prompt() {
-    echo -e "${YELLOW}ACTION:${NC} $1"
-    read -p "Press Enter to see findings (or Ctrl+C to stop)..."
-    eval "$2"
-    echo -e "\n${GREEN}RECOMMENDATION:${NC} $3"
-    read -p "    Done? Press Enter for next check..."
+warn() {
+    echo -e "${RED}[WARN]${NC} $1"
+    echo -e "       ${YELLOW}FIX:${NC} $2"
 }
-
-echo -e "${BLUE}=== NCAE Interactive Threat Hunt ===${NC}"
-echo "This script will show you system info. YOU must decide if it is bad."
 
 # --- 1. Shell Hygiene ---
-header "1. Shell Hygiene" "Checking for malicious aliases"
-prompt "Look for strange aliases (e.g., ls='rm -rf')." \
-    "alias" \
-    "Run 'unalias -a' to clear all aliases."
 
-header "1. Shell Hygiene" "Checking .bashrc attributes"
-prompt "Look for 'i' (immutable) flag on .bashrc." \
-    "lsattr /home/*/.bashrc /root/.bashrc 2>/dev/null" \
-    "If immutable, run 'chattr -i <file>' then check contents."
+# Check Aliases
+if [ -n "$(alias)" ]; then
+    warn "Malicious aliases detected (commands might be hijacked)." \
+         "unalias -a"
+else
+    pass "No aliases found (Clean Shell)"
+fi
 
-# --- 2. Identity & Access ---
-header "2. Identity & Access" "Checking Sudoers"
-prompt "Who is in the 'sudo' group? (Should only be 'user')." \
-    "grep sudo /etc/group" \
-    "Run 'gpasswd -d <username> sudo' to remove unauthorized admins."
+# Check .bashrc Immutability
+# Note: Checking root and current user
+IMMUTABLE=$(lsattr /root/.bashrc /home/*/.bashrc 2>/dev/null | grep "\-i\-")
+if [ -n "$IMMUTABLE" ]; then
+    warn ".bashrc is IMMUTABLE (cannot be edited, likely malicious)." \
+         "chattr -i <file>"
+else
+    pass ".bashrc attributes are mutable (Normal)"
+fi
 
-header "2. Identity & Access" "Checking User Shells"
-prompt "Look for weird shells (e.g., /bin/esrever, /bin/sh for normal users)." \
-    "awk -F: '(\$3 >= 1000) {print \$1 \" -> \" \$7}' /etc/passwd" \
-    "Run 'chsh -s /bin/bash <user>' to fix."
+# --- 2. Identity ---
 
-header "2. Identity & Access" "Checking UID 0 (God Mode)"
-prompt "Are there any root users besides 'root'?" \
-    "awk -F: '(\$3 == 0) {print \$1 \" (UID \" \$3 \")\"}' /etc/passwd" \
-    "Run 'userdel -f <user>' to delete fake roots immediately."
+# Check UID 0
+FAKE_ROOTS=$(awk -F: '($3 == 0 && $1 != "root") {print $1}' /etc/passwd)
+if [ -n "$FAKE_ROOTS" ]; then
+    warn "Found unauthorized UID 0 users: $FAKE_ROOTS" \
+         "userdel -f -r $FAKE_ROOTS"
+else
+    pass "No fake root accounts (UID 0 Check Clean)"
+fi
+
+# Check Sudoers
+# Users in sudo group other than 'user'
+SUDO_USERS=$(grep '^sudo:' /etc/group | cut -d: -f4 | tr ',' ' ')
+BAD_ADMINS=""
+for u in $SUDO_USERS; do
+    if [[ "$u" != "user" && "$u" != "ssh-user" ]]; then
+        BAD_ADMINS="$BAD_ADMINS $u"
+    fi
+done
+
+if [ -n "$BAD_ADMINS" ]; then
+    warn "Unauthorized admins found in 'sudo' group: $BAD_ADMINS" \
+         "gpasswd -d <user> sudo"
+else
+    pass "Sudo group is clean (Only authorized admins)"
+fi
+
+# Check Shells
+# Users with /bin/sh or other shells who are standard users (UID >= 1000)
+# We expect /bin/bash. /bin/esrever is definitely bad.
+BAD_SHELLS=$(awk -F: '($3 >= 1000 && $7 !~ /\/bin\/bash/ && $7 !~ /nologin/ && $7 !~ /false/) {print $1 " (" $7 ")"}' /etc/passwd)
+if [ -n "$BAD_SHELLS" ]; then
+    warn "Suspicious shells found for users: $BAD_SHELLS" \
+         "chsh -s /bin/bash <user>"
+else
+    pass "User shells look normal (/bin/bash)"
+fi
 
 # --- 3. Network & Persistence ---
-header "3. Network & Persistence" "Checking Listeners"
-prompt "Look for weird ports (4444, 1337, 666, 23 (telnet))." \
-    "ss -tulpn" \
-    "Identify PID, then run 'systemctl stop <service>' or 'kill -9 <pid>'."
 
-header "3. Network & Persistence" "Checking SUID Binaries"
-prompt "Look for standard tools (vim, find, cp, python) in this list." \
-    "find / -type f -perm -4000 2>/dev/null | grep -E '/bin/|/sbin/'" \
-    "Run 'chmod u-s <file>' to remove the danger."
+# Check Listeners
+# Looking for common backdoor ports or netcat
+SUS_PORTS=$(ss -tulpn | grep -E ":(4444|1337|23|666|8000)")
+if [ -n "$SUS_PORTS" ]; then
+    warn "Suspicious ports detected (4444, 23, 8000, etc)!" \
+         "Identify with 'ss -tulpn', then 'systemctl stop <service>' or 'kill <pid>'"
+else
+    pass "No common backdoor ports (4444, 23, 8000) listening"
+fi
 
-header "3. Network & Persistence" "Checking Systemd Services"
-prompt "Look for recently modified service files." \
-    "find /etc/systemd/system -type f -mtime -2 -exec ls -l {} \;" \
-    "Inspect file with 'cat', if bad: 'rm <file>' and 'systemctl daemon-reload'."
+# Check SUID
+# Fast check for dangerous GTFOBins
+DANGEROUS=("vim" "nano" "cp" "find" "python3" "bash" "sh" "awk" "sed" "nmap")
+FOUND_SUID=""
+for bin in "${DANGEROUS[@]}"; do
+    if [ -u "$(which $bin 2>/dev/null)" ]; then
+        FOUND_SUID="$FOUND_SUID $bin"
+    fi
+done
 
-echo -e "\n${BLUE}=== Hunt Complete ===${NC}"
-echo "Good hunting!"
+if [ -n "$FOUND_SUID" ]; then
+    warn "Dangerous SUID binaries found:$FOUND_SUID" \
+         "chmod u-s \$(which <binary>)"
+else
+    pass "No common GTFOBins have SUID set"
+fi
+
+# Check Systemd (Modifications in last 24h)
+RECENT_SERVICES=$(find /etc/systemd/system -type f -mtime -1 2>/dev/null)
+if [ -n "$RECENT_SERVICES" ]; then
+    warn "Systemd services modified in the last 24 hours:" \
+         "Check these files: \n$RECENT_SERVICES"
+else
+    pass "No recent changes to Systemd services"
+fi
+
+# Check PAM
+if grep -q "pam_permit.so" /etc/pam.d/common-auth; then
+    warn "PAM backdoor detected (pam_permit.so)!" \
+         "Edit /etc/pam.d/common-auth and remove the line."
+else
+    pass "PAM authentication looks clean"
+fi
+
+echo -e "${BLUE}=== Scanner Complete ===${NC}"
