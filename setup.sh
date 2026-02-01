@@ -184,7 +184,8 @@ ufw allow 40000:50000/tcp comment 'FTP Passive' >> "$LOG_FILE" 2>&1
 
 ufw --force enable >> "$LOG_FILE" 2>&1
 log "Firewall Rules Applied:"
-ufw status verbose | grep "21" || warn "FTP Port 21 might not be allowed!"
+# Show all active rules so you can verify SSH, HTTP, DNS, SQL, and FTP are ALL open.
+ufw status
 
 # 3.2 Anti-Persistence
 log "  - Clearing Crontabs..."
