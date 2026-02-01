@@ -130,15 +130,15 @@ chown -R ssh-user:ssh-user /home/ssh-user/.ssh
 chmod 700 /home/ssh-user/.ssh
 chmod 600 /home/ssh-user/.ssh/authorized_keys
 # Config Hardening
-# 1. Enforce Port 22
-sed -i 's/#Port 22/Port 22/' /etc/ssh/sshd_config
-# 2. Enable Public Key Auth (Critical for us since we disable passwords)
-sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-# 3. Disable Password Auth (SECURITY: Prevents brute force)
-sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+# We use 'sed -E' with regex to catch variations (commented or uncommented, different ports)
+# 1. Enforce Port 22 (Matches 'Port 22', '#Port 22', 'Port 2222', etc)
+sed -i -E 's/^#? *Port [0-9]+/Port 22/' /etc/ssh/sshd_config
+# 2. Enable Public Key Auth
+sed -i -E 's/^#? *PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+# 3. Disable Password Auth
+sed -i -E 's/^#? *PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
 # 4. Disable Root Login
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i -E 's/^#? *PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
 systemctl restart ssh >> "$LOG_FILE" 2>&1
 
 # --- 3. Security Hardening ---
